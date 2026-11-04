@@ -285,6 +285,59 @@ test('the team can remove a post', async () => {
   assert.equal((await admin.from('posts').select('id').eq('id', hers.id)).data.length, 0);
 });
 
+test('only the post author can report a comment, and only the team sees it', async () => {
+  const hers = await post(ana, { body: 'report target' });
+  const said = (await bea.db.from('comments').insert({ post_id: hers.id, body: 'unkind words' }).select().single()).data;
+  const mine = (await ana.db.from('comments').insert({ post_id: hers.id, body: 'my reply' }).select().single()).data;
+  const ours = (await team.db.from('comments').insert({ post_id: hers.id, body: 'team', as_team: true }).select().single()).data;
+  const report = (who, id) => who.db.rpc('report_comment', { p_comment: id, p_reason: 'Mean or hurtful', p_urgent: true });
+
+  assert.ok((await report(cara, said.id)).error, 'outsider');
+  assert.ok((await report(bea, said.id)).error, 'the commenter herself');
+  assert.ok((await report(ana, mine.id)).error, 'her own comment');
+  assert.ok((await report(ana, ours.id)).error, 'a team comment');
+  assert.ok((await ana.db.from('flags').insert({ post_id: hers.id, reason: 'x', urgent: true })).error);
+
+  await report(ana, said.id).throwOnError();
+  assert.match((await report(ana, said.id)).error.message, /already_reported/);
+  assert.equal((await bea.db.from('flags').select('*')).data.length, 0);
+  assert.equal((await ana.db.from('flags').select('*')).data.length, 0);
+  assert.ok(!(await ana.db.rpc('my_flags')).data.includes(hers.id));
+
+  const queue = (await team.db.from('flags').select('*').eq('comment_id', said.id)).data;
+  assert.equal(queue.length, 1);
+  assert.equal(queue[0].reported_comment, 'unkind words');
+  assert.equal(queue[0].reported_author, bea.alias);
+  assert.equal(queue[0].urgent, true);
+});
+
+test('a member can report two comments on one post and still flag it', async () => {
+  const hers = await post(ana, { body: 'two comments' });
+  const first = (await cara.db.from('comments').insert({ post_id: hers.id, body: 'one' }).select().single()).data;
+  const second = (await cara.db.from('comments').insert({ post_id: hers.id, body: 'two' }).select().single()).data;
+  for (const id of [first.id, second.id]) {
+    await ana.db.rpc('report_comment', { p_comment: id, p_reason: 'Mean or hurtful', p_urgent: false }).throwOnError();
+  }
+  await ana.db.from('flags').insert({ post_id: hers.id }).throwOnError();
+  assert.ok((await ana.db.rpc('my_flags')).data.includes(hers.id));
+});
+
+test('only suspended members can appeal, once at a time, and only the team reads it', async () => {
+  assert.ok((await bea.db.rpc('submit_appeal', { p_message: 'not suspended' })).error);
+  const ivy = await member('ivy');
+  for (let i = 0; i < 3; i++) await ivy.db.rpc('record_strike').throwOnError();
+  assert.ok((await ivy.db.rpc('submit_appeal', { p_message: '   ' })).error);
+  await ivy.db.rpc('submit_appeal', { p_message: 'It was a quote' }).throwOnError();
+  assert.match((await ivy.db.rpc('submit_appeal', { p_message: 'again' })).error.message, /already_appealed/);
+  assert.equal((await ivy.db.from('flags').select('*')).data.length, 0);
+  assert.equal((await bea.db.from('flags').select('*')).data.length, 0);
+  const queue = (await team.db.from('flags').select('*').eq('reporter_id', ivy.id)).data;
+  assert.equal(queue[0].post_text, 'It was a quote');
+  assert.equal(queue[0].source, 'appeal');
+  await team.db.from('flags').update({ status: 'followed_up' }).eq('id', queue[0].id).throwOnError();
+  assert.equal((await team.db.from('flags').select('post_text').eq('id', queue[0].id).single()).data.post_text, '');
+});
+
 test('nobody can make themselves team', async () => {
   assert.ok((await bea.db.from('team_members').insert({ user_id: bea.id })).error);
   assert.equal((await bea.db.rpc('is_team')).data, false);

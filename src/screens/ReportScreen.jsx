@@ -1,18 +1,28 @@
 import { useState } from 'react';
 import { UiIcon } from '../components/icons.jsx';
-import { TEAM_EMAIL } from '../data/content.js';
-import { fillTemplate, reportReasons } from '../data/reportReasons.js';
+import { reportReasons } from '../data/reportReasons.js';
+import { friendlyError, supabase } from '../lib/supabase.js';
 
-export default function ReportScreen({ comment, post, reporter, onBack }) {
+export default function ReportScreen({ comment, onBack }) {
   const [reasonId, setReasonId] = useState(null);
-  const [opened, setOpened] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState('');
   const reason = reportReasons.find((item) => item.id === reasonId);
   const username = comment.author;
 
-  const values = { username, comment: comment.text, post: post.text, reporter };
-  const subject = reason ? fillTemplate(reason.subject, values) : '';
-  const body = reason ? fillTemplate(reason.body, values) : '';
-  const mailto = `mailto:${TEAM_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const send = async () => {
+    setSending(true);
+    setError('');
+    const { error: failure } = await supabase.rpc('report_comment', {
+      p_comment: comment.id,
+      p_reason: reason.label,
+      p_urgent: Boolean(reason.urgent),
+    });
+    setSending(false);
+    if (failure) setError(friendlyError(failure));
+    else setSent(true);
+  };
 
   return (
     <div className="community-app">
@@ -35,7 +45,7 @@ export default function ReportScreen({ comment, post, reporter, onBack }) {
             <blockquote>{comment.text}</blockquote>
           </figure>
 
-          <fieldset className="report-reasons">
+          <fieldset className="report-reasons" disabled={sent}>
             <legend className="section-label">Why are you reporting {username}?</legend>
             {reportReasons.map((item) => (
               <label
@@ -45,10 +55,7 @@ export default function ReportScreen({ comment, post, reporter, onBack }) {
                 <input
                   checked={reasonId === item.id}
                   name="report-reason"
-                  onChange={() => {
-                    setReasonId(item.id);
-                    setOpened(false);
-                  }}
+                  onChange={() => setReasonId(item.id)}
                   type="radio"
                   value={item.id}
                 />
@@ -57,36 +64,27 @@ export default function ReportScreen({ comment, post, reporter, onBack }) {
             ))}
           </fieldset>
 
-          {reason && (
-            <section className="report-preview" aria-labelledby="report-preview-title">
-              <h2 className="section-label" id="report-preview-title">
-                Email to the team
-              </h2>
-              <dl>
-                <dt>To</dt>
-                <dd>{TEAM_EMAIL}</dd>
-                <dt>Subject</dt>
-                <dd>{subject}</dd>
-              </dl>
-              <pre>{body}</pre>
-              <a className="primary-button report-send" href={mailto} onClick={() => setOpened(true)}>
-                <UiIcon name="mail" size={18} />
-                Email the team
-              </a>
-              {opened && (
-                <p className="report-status" role="status">
-                  Your mail app should open with this email ready — press send to
-                  finish. The team will check the comment and can suspend{' '}
-                  {username}&apos;s account.
-                </p>
-              )}
-            </section>
+          {error && <p className="circle-error" role="alert">{error}</p>}
+
+          {sent ? (
+            <p className="report-status" role="status">
+              Your report is with the team. They&apos;ll review the comment and can
+              suspend {username}&apos;s account.
+            </p>
+          ) : (
+            <button
+              className="primary-button report-send"
+              disabled={!reason || sending}
+              onClick={send}
+              type="button"
+            >
+              {sending ? 'Sending…' : 'Send to the team'}
+            </button>
           )}
 
           <p className="report-note">
-            {username} won&apos;t be told who reported them. The email is sent from
-            your own mail app, so on a shared device you may want to delete it from
-            your Sent folder afterwards.
+            {username} won&apos;t be told who reported them. Your report stays inside
+            the circle, so nothing is sent from your own email.
           </p>
         </section>
       </div>

@@ -9,6 +9,8 @@ const REFRESH_EVERY = 15000;
 const sourceLabel = {
   member: 'Flagged by a member',
   needs_support: 'Needs Support post',
+  comment_report: 'Comment report',
+  appeal: 'Suspension appeal',
 };
 
 function FlagCard({ flag, onDone }) {
@@ -42,10 +44,23 @@ function FlagCard({ flag, onDone }) {
   return (
     <article className="flag-card">
       <p className="flag-card__meta">
+        {flag.urgent && <strong className="flag-urgent">URGENT · </strong>}
         {sourceLabel[flag.source]} · {flag.post_author} · {timeAgo(flag.created_at)}
       </p>
+      {flag.source === 'comment_report' && (
+        <p className="flag-report">
+          <strong>{flag.reason}</strong>
+          <br />
+          {flag.reported_author} wrote: {flag.reported_comment}
+          <br />
+          On the post below, by the member who reported it.
+        </p>
+      )}
       <p>{flag.post_text}</p>
-      {flag.post_id ? (
+      {flag.source === 'appeal' && (
+        <p className="flag-card__meta">An admin can lift this in the Members tab.</p>
+      )}
+      {flag.source !== 'appeal' && flag.post_id && (
         <form className="team-reply" onSubmit={sendReply}>
           <label className="visually-hidden" htmlFor={draftId}>
             Reply as the team
@@ -61,7 +76,8 @@ function FlagCard({ flag, onDone }) {
             Send reply
           </button>
         </form>
-      ) : (
+      )}
+      {flag.source !== 'appeal' && !flag.post_id && (
         <p className="flag-card__meta">She has deleted this post, so it can&apos;t be replied to.</p>
       )}
       {error && <p className="circle-error" role="alert">{error}</p>}
@@ -88,6 +104,7 @@ function Queue() {
       .from('flags')
       .select('*')
       .eq('status', 'open')
+      .order('urgent', { ascending: false })
       .order('created_at');
     if (failure) setError(friendlyError(failure));
     else {
@@ -105,7 +122,7 @@ function Queue() {
   return (
     <section className="team-queue" aria-label="Flagged for follow-up">
       <p className="portal-note">
-        {flags ? `${flags.length} waiting · oldest first` : 'Loading…'}
+        {flags ? `${flags.length} waiting · urgent first, then oldest` : 'Loading…'}
       </p>
       {error && <p className="circle-error" role="alert">{error}</p>}
       <Helplines intro="If someone may be in danger, use these lines. Don't wait." />

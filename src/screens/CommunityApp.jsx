@@ -163,7 +163,7 @@ export default function CommunityApp({
       {/* Only the post's author can report comments on her post. */}
       {post.author === alias && !response.team && response.author !== alias && (
         <button
-          aria-label={`Report ${response.author}'s comment`}
+          aria-label={`Report ${response.author}'s comment to the team`}
           className="report-button"
           onClick={() => {
             setReplyPost(null);
@@ -171,8 +171,8 @@ export default function CommunityApp({
           }}
           type="button"
         >
-          <UiIcon name="mail" size={16} />
-          Report by mail
+          <UiIcon name="flag" size={16} />
+          Report to the team
         </button>
       )}
     </div>
@@ -241,8 +241,6 @@ export default function CommunityApp({
       <ReportScreen
         comment={reportTarget.comment}
         onBack={() => setReportTarget(null)}
-        post={reportTarget.post}
-        reporter={alias}
       />
     );
   }

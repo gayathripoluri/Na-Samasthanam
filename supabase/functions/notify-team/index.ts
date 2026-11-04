@@ -1,5 +1,6 @@
 // Emails the team when a flag arrives, so nobody has to watch the queue.
 // Called by a Supabase database webhook on INSERT into public.flags.
+// TEAM_ALERT_EMAIL is a server secret, so the address never reaches the app.
 // The email never contains the post: it goes to an inbox, so it only says
 // that someone is waiting and links to the console.
 
@@ -9,7 +10,13 @@ Deno.serve(async (request) => {
   }
 
   const { record } = await request.json();
-  const source = record?.source === 'needs_support' ? 'A Needs Support post' : 'A flagged post';
+  const labels = {
+    member: 'A flagged post',
+    needs_support: 'A Needs Support post',
+    comment_report: 'A comment report',
+    appeal: 'A suspension appeal',
+  };
+  const source = labels[record?.source] ?? 'Something';
 
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -20,7 +27,7 @@ Deno.serve(async (request) => {
     body: JSON.stringify({
       from: Deno.env.get('ALERT_FROM'),
       to: Deno.env.get('TEAM_ALERT_EMAIL').split(','),
-      subject: 'Someone is waiting for follow-up',
+      subject: `${record?.urgent ? 'URGENT: ' : ''}Someone is waiting for follow-up`,
       text: `${source} needs follow-up.\n\nOpen the queue: ${Deno.env.get('SITE_URL')}/#team`,
     }),
   });

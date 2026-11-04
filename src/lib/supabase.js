@@ -27,6 +27,8 @@ const messages = {
   not_accepting: 'She isn’t accepting new messages right now.',
   already_requested: 'You’ve already reached out to her.',
   not_allowed: 'That isn’t possible right now.',
+  already_reported: 'You’ve already reported this comment.',
+  already_appealed: 'Your appeal is already with the team.',
 };
 
 export function friendlyError(error) {

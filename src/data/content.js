@@ -60,8 +60,5 @@ export const reasonTopics = {
   'Recovering from abuse or trauma': ['Healing'],
 };
 
-// Where reports and suspension appeals go. Replace with the team's real inbox.
-export const TEAM_EMAIL = 'team@naasamasthanam.org';
-
 // Blocked comment attempts allowed before an account is suspended.
 export const MAX_STRIKES = 3;

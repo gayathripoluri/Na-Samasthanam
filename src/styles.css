@@ -2364,45 +2364,6 @@ button {
   outline-offset: 2px;
 }
 
-.report-preview {
-  display: grid;
-  gap: 12px;
-}
-
-.report-preview h2 {
-  margin: 0;
-}
-
-.report-preview dl {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 4px 12px;
-  margin: 0;
-  font-size: 14px;
-}
-
-.report-preview dt {
-  color: var(--color-muted);
-}
-
-.report-preview dd {
-  margin: 0;
-  color: #f1eee8;
-  overflow-wrap: anywhere;
-}
-
-.report-preview pre {
-  margin: 0;
-  padding: 14px;
-  border-radius: 12px;
-  background: #141823;
-  color: #d9d5ce;
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-}
-
 .report-send {
   display: inline-flex;
   align-items: center;
@@ -2825,4 +2786,32 @@ button {
   color: var(--color-muted);
   font-size: 0.76rem;
   overflow-wrap: anywhere;
+}
+
+.flag-urgent {
+  color: #e98f8f;
+}
+
+.flag-report {
+  padding: 10px;
+  border-left: 2px solid var(--color-gold);
+}
+
+.appeal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+  text-align: left;
+}
+
+.appeal-form textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  resize: vertical;
 }
