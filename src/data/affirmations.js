@@ -65,7 +65,7 @@ export const affirmationsByReason = {
   ],
 };
 
-const DECK_SIZE = 10;
+const DECK_SIZE = 5;
 
 // Takes her reasons' affirmations in turn (so two reasons both show up early),
 // then tops up with general ones. No reasons picked → the general set.

@@ -1,9 +1,22 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import QuickExit from './components/QuickExit.jsx';
 import { buildAffirmationDeck } from './data/affirmations.js';
-import { MAX_STRIKES, promises } from './data/content.js';
-import { clearPersistentState, usePersistentState } from './hooks/usePersistentState.js';
+import { promises } from './data/content.js';
+import {
+  clearLegacyState,
+  clearPersistentState,
+  usePersistentState,
+} from './hooks/usePersistentState.js';
 import { unlockWithDeviceLock } from './lib/deviceLock.js';
+import {
+  claimMember,
+  fetchProfile,
+  isConfigured,
+  isTeamRoute,
+  recordStrike,
+  signOutLocally,
+  updateProfile,
+} from './lib/supabase.js';
 import AffirmationsComplete from './screens/AffirmationsComplete.jsx';
 import AffirmationsScreen from './screens/AffirmationsScreen.jsx';
 import CommunityApp from './screens/CommunityApp.jsx';
@@ -12,32 +25,35 @@ import PromiseScreen from './screens/PromiseScreen.jsx';
 import ReasonsScreen from './screens/ReasonsScreen.jsx';
 import Signature from './screens/Signature.jsx';
 import SuspendedScreen from './screens/SuspendedScreen.jsx';
+import TeamConsole from './screens/TeamConsole.jsx';
 import Welcome from './screens/Welcome.jsx';
 
-// Dev-only: open the app with ?team to reply as staff. Production builds
-// ignore it, so nobody can claim the Team badge from the URL. Replace with a
-// real role check once accounts exist.
-const isTeamPreview =
-  import.meta.env.DEV && new URLSearchParams(window.location.search).has('team');
+const SCREENS_AFTER_SIGNING = ['memberWelcome', 'affirmations', 'complete'];
 
-export default function App() {
+function Member() {
+  // Only onboarding progress and the passkey id stay on the device. Her alias,
+  // reasons and everything shared live on the server, loaded after she unlocks.
   const [screen, setScreen] = usePersistentState('screen', 'welcome');
   const [promiseIndex, setPromiseIndex] = usePersistentState('promiseIndex', 1);
-  const [alias, setAlias] = usePersistentState('alias', '');
-  // Comments blocked for curse words. Survives sign out, so signing out can't
-  // reset it. Real enforcement needs accounts on a server.
-  const [strikes, setStrikes] = usePersistentState('strikes', 0);
   const [selectedReasons, setSelectedReasons] = usePersistentState('reasons', []);
-  const [savedAffirmations, setSavedAffirmations] = usePersistentState('savedAffirmations', []);
-  // Finished onboarding on this device. Returning members still land on the
-  // Welcome screen first rather than straight inside the circle.
   const [isMember, setIsMember] = usePersistentState('member', false);
   // Passkey id from sealing with her fingerprint; null if sealed without one.
   const [lockCredential, setLockCredential] = usePersistentState('lockCredential', null);
+  const [profile, setProfile] = useState(null);
   const [unlocking, setUnlocking] = useState(false);
   const [unlockFailed, setUnlockFailed] = useState(false);
+  const [offline, setOffline] = useState(false);
   const [appEntered, setAppEntered] = useState(false);
   const lastAdvancedPromiseRef = useRef(promiseIndex - 1);
+
+  useEffect(clearLegacyState, []);
+
+  // A refresh part-way through the last onboarding screens.
+  useEffect(() => {
+    if (SCREENS_AFTER_SIGNING.includes(screen) && !profile) {
+      fetchProfile().then(setProfile).catch(() => setOffline(true));
+    }
+  }, [screen, profile]);
 
   const toggleReason = (reason) => {
     setSelectedReasons((current) =>
@@ -57,14 +73,28 @@ export default function App() {
     setPromiseIndex((current) => current + 1);
   };
 
+  const claimAlias = async (alias) => {
+    // On a retry her reasons are already saved and cleared from the device.
+    const claimed = await claimMember(alias, profile?.reasons ?? selectedReasons);
+    setProfile(claimed);
+    setSelectedReasons([]);
+  };
+
+  // Always from promise 1: an old device can still hold progress from before.
+  const startOnboarding = () => {
+    setIsMember(false);
+    setPromiseIndex(1);
+    lastAdvancedPromiseRef.current = 0;
+    setScreen('reasons');
+  };
+
   // Returning members open the circle with their phone's lock, if they set one.
   const continueFromWelcome = async () => {
-    // Members saved before aliases existed have none; send them back through
-    // signing to choose one.
-    if (!isMember || !alias) {
-      setScreen('reasons');
+    if (!isMember) {
+      startOnboarding();
       return;
     }
+    setOffline(false);
     if (lockCredential) {
       setUnlocking(true);
       setUnlockFailed(false);
@@ -75,7 +105,17 @@ export default function App() {
         return;
       }
     }
-    setAppEntered(true);
+    try {
+      const loaded = await fetchProfile();
+      if (!loaded) {
+        startOnboarding();
+        return;
+      }
+      setProfile(loaded);
+      setAppEntered(true);
+    } catch {
+      setOffline(true);
+    }
   };
 
   const enterCircle = () => {
@@ -84,97 +124,119 @@ export default function App() {
     setAppEntered(true);
   };
 
-  // Signing out forgets everything saved on this device except strikes.
-  const signOut = () => {
-    clearPersistentState({ keep: ['strikes'] });
+  // Her account has no email or password, so this ends it on this device.
+  const signOut = async () => {
+    await signOutLocally();
+    clearPersistentState();
     setScreen('welcome');
     setPromiseIndex(1);
-    setAlias('');
     setSelectedReasons([]);
-    setSavedAffirmations([]);
     setIsMember(false);
     setLockCredential(null);
+    setProfile(null);
     setUnlockFailed(false);
     setAppEntered(false);
     lastAdvancedPromiseRef.current = 0;
   };
 
-  if (strikes >= MAX_STRIKES) {
+  if (profile?.suspended_at) return <SuspendedScreen />;
+
+  if (appEntered && profile) {
     return (
-      <main className="app-shell">
-        <QuickExit />
-        <SuspendedScreen />
-      </main>
+      <CommunityApp
+        alias={profile.alias}
+        deviceLockOn={Boolean(lockCredential)}
+        messagePrivacy={profile.message_privacy}
+        onBlockedComment={() => recordStrike().then(setProfile).catch(() => {})}
+        onSignOut={signOut}
+        onUpdateProfile={(change) =>
+          updateProfile(profile.id, change).then(setProfile).catch(() => {})
+        }
+        reasons={profile.reasons}
+        savedAffirmations={profile.saved_affirmations}
+        strikes={profile.strikes}
+        suggestSupport={profile.suggest_support}
+        userId={profile.id}
+      />
     );
   }
 
+  const alias = profile?.alias ?? '';
+
   return (
-    <main className="app-shell">
-      <QuickExit />
-      {appEntered ? (
-        <CommunityApp
-          alias={alias}
-          deviceLockOn={Boolean(lockCredential)}
-          isTeam={isTeamPreview}
-          onBlockedComment={() => setStrikes((count) => count + 1)}
-          onSignOut={signOut}
-          reasons={selectedReasons}
-          savedAffirmations={savedAffirmations}
-          strikes={strikes}
+    <>
+      {screen === 'welcome' && (
+        <Welcome
+          offline={offline}
+          onContinue={continueFromWelcome}
+          onStartOver={signOut}
+          unlockFailed={unlockFailed}
+          unlocking={unlocking}
         />
-      ) : (
-        <>
-          {screen === 'welcome' && (
-            <Welcome
-              onContinue={continueFromWelcome}
-              onStartOver={signOut}
-              unlockFailed={unlockFailed}
-              unlocking={unlocking}
-            />
-          )}
-          {screen === 'reasons' && (
-            <ReasonsScreen
-              onContinue={() => setScreen('promises')}
-              onToggle={toggleReason}
-              selected={selectedReasons}
-            />
-          )}
-          {screen === 'promises' && (
-            <PromiseScreen index={promiseIndex} onPromise={makePromise} />
-          )}
-          {screen === 'signature' && (
-            <Signature
-              onSeal={(name, credentialId) => {
-                setAlias(name);
-                setLockCredential(credentialId);
-                setScreen('memberWelcome');
-              }}
-            />
-          )}
-          {screen === 'memberWelcome' && (
-            <MemberWelcome alias={alias} onEnter={() => setScreen('affirmations')} />
-          )}
-          {screen === 'affirmations' && (
-            <AffirmationsScreen
-              affirmations={buildAffirmationDeck(selectedReasons)}
-              onComplete={(saved) => {
-                setSavedAffirmations(saved);
-                setScreen('complete');
-              }}
-            />
-          )}
-          {screen === 'complete' && (
-            <AffirmationsComplete
-              alias={alias}
-              onContinue={enterCircle}
-              savedCount={savedAffirmations.length}
-            />
-          )}
-          <span className="visually-hidden" aria-live="polite">
-            {alias ? `Promise signed by ${alias}` : ''}
-          </span>
-        </>
       )}
+      {screen === 'reasons' && (
+        <ReasonsScreen
+          onContinue={() => setScreen('promises')}
+          onToggle={toggleReason}
+          selected={selectedReasons}
+        />
+      )}
+      {screen === 'promises' && <PromiseScreen index={promiseIndex} key={promiseIndex} onPromise={makePromise} />}
+      {screen === 'signature' && (
+        <Signature
+          onClaim={claimAlias}
+          onSeal={(credentialId) => {
+            setLockCredential(credentialId);
+            setScreen('memberWelcome');
+          }}
+        />
+      )}
+      {screen === 'memberWelcome' && (
+        <MemberWelcome alias={alias} onEnter={() => setScreen('affirmations')} />
+      )}
+      {screen === 'affirmations' && (
+        <AffirmationsScreen
+          affirmations={buildAffirmationDeck(profile?.reasons ?? [])}
+          onComplete={(saved) => {
+            setProfile((current) => ({ ...current, saved_affirmations: saved }));
+            if (profile) {
+              updateProfile(profile.id, { saved_affirmations: saved }).catch(() => {});
+            }
+            setScreen('complete');
+          }}
+        />
+      )}
+      {screen === 'complete' && (
+        <AffirmationsComplete
+          alias={alias}
+          onContinue={enterCircle}
+          savedCount={profile?.saved_affirmations.length ?? 0}
+        />
+      )}
+      <span className="visually-hidden" aria-live="polite">
+        {alias ? `Promise signed by ${alias}` : ''}
+      </span>
+    </>
+  );
+}
+
+function NotConnected() {
+  return (
+    <section className="screen suspended-screen" aria-labelledby="offline-title">
+      <div className="breathing-copy">
+        <h1 id="offline-title">The circle isn&apos;t open yet.</h1>
+        <p>This site hasn&apos;t been connected to its database.</p>
+      </div>
+    </section>
+  );
+}
+
+export default function App() {
+  return (
+    <main className={`app-shell${isConfigured && isTeamRoute ? ' app-shell--portal' : ''}`}>
+      <QuickExit />
+      {!isConfigured && <NotConnected />}
+      {isConfigured && (isTeamRoute ? <TeamConsole /> : <Member />)}
     </main>
   );
 }

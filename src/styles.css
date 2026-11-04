@@ -2584,3 +2584,245 @@ button {
     padding: 13px;
   }
 }
+
+.circle-error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(214, 90, 90, 0.16);
+  color: inherit;
+  font-size: 0.9rem;
+}
+
+.team-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.team-reply {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin: 10px 0;
+}
+
+.team-reply textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+}
+
+/* Team portal: a full-width desktop tool, not the phone frame. */
+.app-shell.app-shell--portal {
+  width: 100%;
+  min-height: 100vh;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.portal {
+  max-width: 1080px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 20px 16px 48px;
+}
+
+.portal-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 44px;
+  padding-right: 120px;
+}
+
+.portal-header h1 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 1.6rem;
+  font-weight: 400;
+}
+
+.portal-role {
+  padding: 3px 10px;
+  border: 1px solid var(--color-gold);
+  border-radius: 999px;
+  color: var(--color-gold);
+  font-size: 0.78rem;
+}
+
+.portal-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 16px 0 20px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.portal-tabs button {
+  flex: none;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.portal-tabs button.is-active {
+  border-bottom-color: var(--color-gold);
+  color: #f1eee8;
+}
+
+.portal-tabs .portal-signout {
+  margin-left: auto;
+}
+
+.portal .team-queue {
+  max-width: 640px;
+  padding: 0;
+}
+
+.portal-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.portal-toolbar .feed-filter {
+  margin: 0;
+  padding: 0;
+}
+
+.portal-note,
+.portal-counts,
+.portal-link {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.88rem;
+}
+
+.portal-counts {
+  margin: 8px 0;
+}
+
+.portal-phone {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 420px;
+}
+
+.portal-search {
+  width: min(100%, 280px);
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+}
+
+.portal-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+}
+
+.portal-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.portal-table th,
+.portal-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-line);
+  font-weight: 400;
+  text-align: left;
+}
+
+.portal-table thead th {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+.portal-table tbody tr:last-child th,
+.portal-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.portal-action {
+  white-space: nowrap;
+}
+
+.portal-plain,
+.portal-remove {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  text-decoration: underline;
+}
+
+.portal-remove {
+  color: #e98f8f;
+}
+
+.portal-overview .section-label {
+  margin: 24px 0 10px;
+}
+
+.portal-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.portal-tile {
+  padding: 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+}
+
+.portal-tile p {
+  margin: 0;
+}
+
+.portal-tile__value {
+  font-family: var(--serif);
+  font-size: 1.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-tile__label {
+  margin-top: 4px !important;
+  font-size: 0.86rem;
+}
+
+.portal-tile__note {
+  margin-top: 2px !important;
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}

@@ -8,3 +8,5 @@ dist/
 .vscode/
 .idea/
 progress.md
+!.env.example
+docs/team-response-plan.md

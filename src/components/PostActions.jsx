@@ -1,6 +1,6 @@
 import { UiIcon } from './icons.jsx';
 
-export default function PostActions({ post, supported, onSupport, onReplies, onFlag, supportMode = false }) {
+export default function PostActions({ post, supported, onSupport, onReplies, onFlag, onMessage, supportMode = false }) {
   return (
     <div className="post-actions">
       <button
@@ -10,7 +10,7 @@ export default function PostActions({ post, supported, onSupport, onReplies, onF
         type="button"
       >
         <UiIcon name="support" size={21} />
-        <span>{post.support + (supported ? 1 : 0)} {supportMode ? 'here for you' : 'support'}</span>
+        <span>{post.support} {supportMode ? 'here for you' : 'support'}</span>
       </button>
       <button
         aria-label={`Comments (${post.responses?.length || 0})`}
@@ -23,6 +23,12 @@ export default function PostActions({ post, supported, onSupport, onReplies, onF
           {post.responses?.length || 0} {supportMode ? 'replies' : ''}
         </span>
       </button>
+      {onMessage && (
+        <button className="post-action" onClick={onMessage} type="button">
+          <UiIcon name="messages" size={20} />
+          <span>Message</span>
+        </button>
+      )}
       {onFlag && (
         <button
           className={`post-action post-action--flag${post.flagged ? ' is-flagged' : ''}`}

@@ -31,6 +31,25 @@ export function usePersistentState(key, initial) {
   return [value, setValue];
 }
 
+// Private data older versions kept on the device, before the server held it.
+const LEGACY_KEYS = [
+  'alias',
+  'strikes',
+  'savedAffirmations',
+  'circlePosts',
+  'supportPosts',
+  'suggestSupport',
+  'messagePrivacy',
+];
+
+export function clearLegacyState() {
+  try {
+    LEGACY_KEYS.forEach((key) => window.localStorage.removeItem(PREFIX + key));
+  } catch {
+    // Nothing to clear if storage is unavailable.
+  }
+}
+
 // Removes everything this app saved, except the keys listed in `keep`.
 export function clearPersistentState({ keep = [] } = {}) {
   const kept = keep.map((key) => PREFIX + key);

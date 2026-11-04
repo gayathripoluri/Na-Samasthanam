@@ -3,12 +3,13 @@ import { CircleMark, FingerprintIcon } from '../components/icons.jsx';
 import { ALIAS_MAX, aliasNameProblem, aliasProblem, aliasRules } from '../lib/alias.js';
 import { isDeviceLockAvailable, registerDeviceLock } from '../lib/deviceLock.js';
 
-export default function Signature({ onSeal }) {
+export default function Signature({ onClaim, onSeal }) {
   const [alias, setAlias] = useState('');
   const [sealed, setSealed] = useState(false);
   const [lockAvailable, setLockAvailable] = useState(false);
   const [sealing, setSealing] = useState(false);
   const [lockFailed, setLockFailed] = useState(false);
+  const [claimError, setClaimError] = useState('');
   const [credentialId, setCredentialId] = useState(null);
   // Aliases can't have spaces, so nothing is trimmed: what she types is checked.
   const problem = alias ? aliasProblem(alias) : '';
@@ -22,12 +23,23 @@ export default function Signature({ onSeal }) {
   const submit = async (event) => {
     event.preventDefault();
     if (!alias || problem || sealing) return;
+    setSealing(true);
+    setLockFailed(false);
+    setClaimError('');
+    // Reserve the alias first, so she isn't asked for a fingerprint for a name
+    // someone else already has.
+    try {
+      await onClaim(alias);
+    } catch (error) {
+      setClaimError(error.message);
+      setSealing(false);
+      return;
+    }
     if (!lockAvailable) {
+      setSealing(false);
       setSealed(true);
       return;
     }
-    setSealing(true);
-    setLockFailed(false);
     try {
       setCredentialId(await registerDeviceLock(alias));
       setSealed(true);
@@ -40,7 +52,7 @@ export default function Signature({ onSeal }) {
 
   const sealLabel = () => {
     if (sealed) return 'Promise sealed';
-    if (sealing) return 'Waiting for your fingerprint…';
+    if (sealing) return lockAvailable ? 'Waiting for your fingerprint…' : 'Sealing…';
     return lockAvailable ? 'Seal with fingerprint' : 'Seal my promise';
   };
 
@@ -63,7 +75,10 @@ export default function Signature({ onSeal }) {
             disabled={sealed || sealing}
             id="signature-name"
             maxLength={ALIAS_MAX + 10}
-            onChange={(event) => setAlias(event.target.value)}
+            onChange={(event) => {
+              setAlias(event.target.value);
+              setClaimError('');
+            }}
             placeholder="e.g. quiet_river7"
             value={alias}
           />
@@ -79,11 +94,11 @@ export default function Signature({ onSeal }) {
             </ul>
           )}
           <p
-            className={`alias-feedback${nameProblem ? ' is-error' : ''}`}
+            className={`alias-feedback${nameProblem || claimError ? ' is-error' : ''}`}
             id="alias-feedback"
             role="status"
           >
-            {nameProblem || (alias && !problem && !sealed ? 'That alias is free.' : '')}
+            {nameProblem || claimError || (alias && !problem && !sealed ? 'That alias looks good.' : '')}
           </p>
           <button
             className="primary-button seal-button"
@@ -117,7 +132,7 @@ export default function Signature({ onSeal }) {
               </p>
               <button
                 className="text-button"
-                onClick={() => onSeal(alias, credentialId)}
+                onClick={() => onSeal(credentialId)}
                 type="button"
               >
                 Continue

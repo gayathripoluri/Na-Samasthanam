@@ -1,5 +1,4 @@
 import { TEAM_NAME } from '../data/content.js';
-import { takenAliases } from '../data/sampleData.js';
 import { findCurseWords } from './moderation.js';
 
 export const ALIAS_MIN = 6;
@@ -21,8 +20,8 @@ export function aliasRules(alias) {
   ];
 }
 
-// Problems the checklist can't show: spaces, banned words, symbols, and names
-// that are reserved or taken. '' if none.
+// Problems the checklist can't show: spaces, banned words, symbols and reserved
+// names. '' if none. Whether it's taken is checked by the server on sealing.
 export function aliasNameProblem(alias) {
   if (/\s/.test(alias)) return 'Spaces aren’t allowed — use _ instead.';
   if (findCurseWords(alias.replace(/_/g, ' ')).length) {
@@ -30,9 +29,6 @@ export function aliasNameProblem(alias) {
   }
   if (!/^[\p{L}\p{M}\p{N}_]+$/u.test(alias)) return 'Use only letters, numbers and _.';
   if (reserved.some((word) => key(word) === key(alias))) return 'That name is reserved.';
-  if (takenAliases.some((taken) => key(taken) === key(alias))) {
-    return 'Someone in the circle already uses that alias. Try another.';
-  }
   return '';
 }
 

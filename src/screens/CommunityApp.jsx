@@ -5,36 +5,28 @@ import Modal from '../components/Modal.jsx';
 import MyPosts from '../components/MyPosts.jsx';
 import PostActions from '../components/PostActions.jsx';
 import { CircleMark, UiIcon } from '../components/icons.jsx';
-import { MAX_STRIKES, TEAM_NAME, needsSupportSignal, reasonTopics } from '../data/content.js';
-import { usePersistentState } from '../hooks/usePersistentState.js';
+import { MAX_STRIKES, needsSupportSignal, reasonTopics } from '../data/content.js';
+import { useCircleData } from '../hooks/useCircleData.js';
 import { findCurseWords, maskWord } from '../lib/moderation.js';
 import ReportScreen from './ReportScreen.jsx';
-import {
-  initialCirclePosts,
-  initialConversations,
-  initialRequests,
-  initialSupportPosts,
-} from '../data/sampleData.js';
 
 export default function CommunityApp({
+  userId,
   alias,
   deviceLockOn,
   reasons,
   savedAffirmations,
-  isTeam,
   strikes,
+  messagePrivacy,
+  suggestSupport,
+  onUpdateProfile,
   onBlockedComment,
   onSignOut,
 }) {
+  const circle = useCircleData(userId);
+  const { posts, supported, conversations } = circle;
   const [tab, setTab] = useState('circle');
-  // Saved on the device so "My posts" survives a refresh. Sign out clears it.
-  const [circlePosts, setCirclePosts] = usePersistentState('circlePosts', initialCirclePosts);
-  const [supportPosts, setSupportPosts] = usePersistentState('supportPosts', initialSupportPosts);
-  const [supported, setSupported] = useState(() => new Set());
   const [guidelinesOpen, setGuidelinesOpen] = useState(true);
-  const [flagQueue, setFlagQueue] = useState([]);
-  const [requests, setRequests] = useState(initialRequests);
-  const [conversations, setConversations] = useState(initialConversations);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareText, setShareText] = useState('');
   const [shareNeedsSupport, setShareNeedsSupport] = useState(false);
@@ -42,20 +34,30 @@ export default function CommunityApp({
   const [supportChoiceMade, setSupportChoiceMade] = useState(false);
   const [replyPost, setReplyPost] = useState(null);
   const [replyText, setReplyText] = useState('');
-  const [replyAsTeam, setReplyAsTeam] = useState(true);
   const [replyBlocked, setReplyBlocked] = useState(false);
   const [reportTarget, setReportTarget] = useState(null);
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [messageText, setMessageText] = useState('');
-  const [suggestSupport, setSuggestSupport] = usePersistentState('suggestSupport', true);
-  const [messagePrivacy, setMessagePrivacy] = usePersistentState(
-    'messagePrivacy',
-    'Circle members only',
-  );
+  const [messagePost, setMessagePost] = useState(null);
+  const [firstMessage, setFirstMessage] = useState('');
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const acceptingRequests = messagePrivacy !== 'No one';
-  const activeConversation = conversations.find(
+  const requests = conversations
+    .filter((item) => item.incoming && item.status === 'pending')
+    .map((item) => ({
+      ...item,
+      preview: item.messages[0]?.text ?? '',
+    }));
+  // A request that was declined simply disappears; she is never told.
+  const openConversations = conversations.filter(
+    (item) => item.status === 'accepted' || (item.status === 'pending' && !item.incoming),
+  );
+  const activeConversation = openConversations.find(
     (conversation) => conversation.id === activeConversationId,
   );
+
+  const circlePosts = posts.filter((post) => post.feed === 'circle');
+  const supportPosts = posts.filter((post) => post.feed === 'support');
 
   const forYouTopics = [...new Set(reasons.flatMap((reason) => reasonTopics[reason] || []))];
   const [feedFilter, setFeedFilter] = useState(forYouTopics.length ? 'for-you' : 'all');
@@ -68,30 +70,7 @@ export default function CommunityApp({
         )
       : liveCirclePosts;
 
-  const myPosts = [
-    ...circlePosts.map((post) => ({ ...post, feed: 'circle' })),
-    ...supportPosts.map((post) => ({ ...post, feed: 'support' })),
-  ]
-    .filter((post) => post.author === alias)
-    .sort((a, b) => b.id - a.id);
-
-  // change = fields to merge into the post, or null to delete it.
-  const changeMyPost = (post, change) => {
-    const setPosts = post.feed === 'support' ? setSupportPosts : setCirclePosts;
-    setPosts((items) =>
-      change === null
-        ? items.filter((item) => item.id !== post.id)
-        : items.map((item) => (item.id === post.id ? { ...item, ...change } : item)),
-    );
-  };
-
-  const toggleSupport = (id) => {
-    setSupported((current) => {
-      const next = new Set(current);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
+  const myPosts = posts.filter((post) => post.author === alias);
 
   const resetShare = () => {
     setShareText('');
@@ -109,43 +88,23 @@ export default function CommunityApp({
     }
   };
 
-  const flagPost = (post) => {
-    setCirclePosts((items) =>
-      items.map((item) => (item.id === post.id ? { ...item, flagged: true } : item)),
-    );
-    // Flags go privately to the team. The post is never reposted publicly.
-    setFlagQueue((queue) => [{ ...post, flaggedAt: 'just now' }, ...queue]);
-  };
-
-  const resolveFlag = (id) => {
-    setFlagQueue((queue) => queue.filter((item) => item.id !== id));
-  };
-
-  const publishPost = (event) => {
+  const publishPost = async (event) => {
     event.preventDefault();
-    const text = shareText.trim();
-    if (!text) return;
-    const post = {
-      id: Date.now(),
-      initial: alias.charAt(0).toUpperCase(),
-      author: alias,
-      time: 'Just now',
-      topic: shareNeedsSupport ? '' : 'Healing',
-      text,
-      support: 0,
-      responses: [],
-    };
-    if (shareNeedsSupport) {
-      setSupportPosts((current) => [post, ...current]);
-    } else {
-      setCirclePosts((current) => [post, ...current]);
-    }
+    const body = shareText.trim();
+    if (!body) return;
+    const toSupport = shareNeedsSupport;
+    const published = await circle.createPost({
+      feed: toSupport ? 'support' : 'circle',
+      topic: toSupport ? '' : 'Healing',
+      body,
+    });
+    if (!published) return;
     resetShare();
     setShareOpen(false);
-    setTab(shareNeedsSupport ? 'support' : 'circle');
+    setTab(toSupport ? 'support' : 'circle');
   };
 
-  const publishReply = (event) => {
+  const publishReply = async (event) => {
     event.preventDefault();
     if (!replyText.trim() || !replyPost) return;
     // Comments with curse words are never posted. Each blocked try is a strike;
@@ -155,72 +114,30 @@ export default function CommunityApp({
       onBlockedComment();
       return;
     }
-    const { post, supportMode } = replyPost;
-    const asTeam = isTeam && replyAsTeam;
-    const response = {
-      id: Date.now(),
-      author: asTeam ? TEAM_NAME : alias,
-      team: asTeam,
-      text: replyText.trim(),
-      time: 'Just now',
-    };
-    const update = (items) =>
-      items.map((item) =>
-        item.id === post.id
-          ? { ...item, responses: [...(item.responses || []), response] }
-          : item,
-      );
-    if (supportMode) setSupportPosts((items) => update(items));
-    else setCirclePosts((items) => update(items));
-    setReplyText('');
+    if (await circle.addComment(replyPost.post.id, replyText.trim())) setReplyText('');
   };
 
-  const decideRequest = (id, accepted) => {
-    const request = requests.find((item) => item.id === id);
-    setRequests((current) => current.filter((item) => item.id !== id));
-    if (accepted && request) {
-      setConversations((current) => [
-        {
-          id: request.id + 100,
-          initial: request.initial,
-          author: request.author,
-          time: 'Just now',
-          unread: true,
-          messages: [{ id: 1, from: 'them', text: request.message, time: request.time }],
-        },
-        ...current,
-      ]);
+  const sendFirstMessage = async (event) => {
+    event.preventDefault();
+    const text = firstMessage.trim();
+    if (!text || !messagePost) return;
+    if (await circle.startConversation(messagePost.id, text)) {
+      setFirstMessage('');
+      setMessagePost(null);
+      setTab('messages');
     }
   };
 
-  const sendMessage = (event) => {
+  const sendMessage = async (event) => {
     event.preventDefault();
     const text = messageText.trim();
     if (!text || !activeConversation) return;
-    setConversations((current) =>
-      current.map((conversation) =>
-        conversation.id === activeConversation.id
-          ? {
-              ...conversation,
-              time: 'Just now',
-              messages: [
-                ...conversation.messages,
-                { id: Date.now(), from: 'you', text, time: 'Just now' },
-              ],
-            }
-          : conversation,
-      ),
-    );
-    setMessageText('');
+    if (await circle.sendMessage(activeConversation.id, text)) setMessageText('');
   };
 
   const openConversation = (id) => {
     setActiveConversationId(id);
-    setConversations((current) =>
-      current.map((conversation) =>
-        conversation.id === id ? { ...conversation, unread: false } : conversation,
-      ),
-    );
+    circle.markRead(id);
   };
 
   const tabTitles = {
@@ -270,7 +187,7 @@ export default function CommunityApp({
   const INLINE_COMMENTS = 2;
 
   const renderPost = (post, supportMode = false) => {
-    const isSupported = supported.has(`${supportMode ? 'support' : 'circle'}-${post.id}`);
+    const isSupported = supported.has(post.id);
     return (
       <article
         className={`community-post${supportMode ? ' community-post--support' : ''}`}
@@ -290,9 +207,10 @@ export default function CommunityApp({
         </div>
         <p className="post-copy">{post.text}</p>
         <PostActions
-          onFlag={supportMode ? undefined : () => flagPost(post)}
+          onFlag={supportMode ? undefined : () => circle.flagPost(post.id)}
+          onMessage={post.author === alias ? undefined : () => setMessagePost(post)}
           onReplies={() => openComments(post, supportMode)}
-          onSupport={() => toggleSupport(`${supportMode ? 'support' : 'circle'}-${post.id}`)}
+          onSupport={() => circle.toggleSupport(post.id)}
           post={post}
           supportMode={supportMode}
           supported={isSupported}
@@ -330,9 +248,7 @@ export default function CommunityApp({
   }
 
   const threadPost = replyPost
-    ? (replyPost.supportMode ? supportPosts : circlePosts).find(
-        (post) => post.id === replyPost.post.id,
-      ) || replyPost.post
+    ? posts.find((post) => post.id === replyPost.post.id) || replyPost.post
     : null;
   const threadComments = threadPost?.responses || [];
 
@@ -379,6 +295,11 @@ export default function CommunityApp({
       </header>
 
       <div className={`community-scroll community-scroll--${tab}`}>
+        {circle.error && (
+          <p className="circle-error" role="alert">
+            {circle.error}
+          </p>
+        )}
         {activeConversation ? (
           <section className="conversation-view" aria-label={`Conversation with ${activeConversation.author}`}>
             {activeConversation.messages.map((message) => (
@@ -390,6 +311,11 @@ export default function CommunityApp({
                 <span>{message.time}</span>
               </div>
             ))}
+            {activeConversation.status === 'pending' ? (
+              <p className="empty-note">
+                Your message is waiting for {activeConversation.author} to accept it.
+              </p>
+            ) : (
             <form className="message-compose" onSubmit={sendMessage}>
               <label className="visually-hidden" htmlFor="message-draft">
                 Write a message
@@ -404,6 +330,7 @@ export default function CommunityApp({
                 <UiIcon name="send" />
               </button>
             </form>
+            )}
           </section>
         ) : (
           <>
@@ -429,6 +356,14 @@ export default function CommunityApp({
                       <span className="feed-filter__topics">{forYouTopics.join(' · ')}</span>
                     )}
                   </div>
+                )}
+                {!circle.loaded && <p className="empty-note">Opening the circle…</p>}
+                {circle.loaded && visibleCirclePosts.length === 0 && (
+                  <p className="empty-note">
+                    {feedFilter === 'for-you'
+                      ? 'Nothing here yet. Try All posts, or share something.'
+                      : 'No posts yet. You could be the first to share.'}
+                  </p>
                 )}
                 {visibleCirclePosts.map((post) => renderPost(post))}
               </section>
@@ -458,32 +393,6 @@ export default function CommunityApp({
                     </ul>
                   )}
                 </section>
-                {isTeam && (
-                  <section className="flag-queue" aria-labelledby="flag-queue-title">
-                    <h2 className="section-label" id="flag-queue-title">
-                      Flagged for follow-up · team only
-                    </h2>
-                    {flagQueue.length ? (
-                      flagQueue.map((item) => (
-                        <article className="flag-card" key={item.id}>
-                          <p className="flag-card__meta">
-                            {item.author} · posted {item.time} · flagged {item.flaggedAt}
-                          </p>
-                          <p>{item.text}</p>
-                          <button
-                            className="request-accept"
-                            onClick={() => resolveFlag(item.id)}
-                            type="button"
-                          >
-                            Mark as followed up
-                          </button>
-                        </article>
-                      ))
-                    ) : (
-                      <p className="empty-note">No flagged posts right now.</p>
-                    )}
-                  </section>
-                )}
                 <div className="post-list">
                   {supportPosts
                     .filter((post) => !post.archived)
@@ -519,14 +428,14 @@ export default function CommunityApp({
                         <div className="request-actions">
                           <button
                             className="request-accept"
-                            onClick={() => decideRequest(request.id, true)}
+                            onClick={() => circle.respondToRequest(request.id, true)}
                             type="button"
                           >
                             Accept
                           </button>
                           <button
                             className="request-decline"
-                            onClick={() => decideRequest(request.id, false)}
+                            onClick={() => circle.respondToRequest(request.id, false)}
                             type="button"
                           >
                             Decline
@@ -537,9 +446,9 @@ export default function CommunityApp({
                   </div>
                 )}
                 <h2 className="section-label conversations-label">Conversations</h2>
-                {conversations.length > 0 ? (
+                {openConversations.length > 0 ? (
                   <div className="conversation-list">
-                    {conversations.map((conversation) => (
+                    {openConversations.map((conversation) => (
                       <button
                         className="conversation-card"
                         key={conversation.id}
@@ -581,9 +490,9 @@ export default function CommunityApp({
                   </span>
                 </div>
                 <MyPosts
-                  onArchive={(post, archived) => changeMyPost(post, { archived })}
-                  onDelete={(post) => changeMyPost(post, null)}
-                  onEdit={(post, text) => changeMyPost(post, { text, edited: true })}
+                  onArchive={(post, archived) => circle.updatePost(post.id, { archived })}
+                  onDelete={(post) => circle.deletePost(post.id)}
+                  onEdit={(post, text) => circle.updatePost(post.id, { body: text })}
                   posts={myPosts}
                 />
                 <h3 className="section-label profile-label">Saved affirmations</h3>
@@ -601,7 +510,7 @@ export default function CommunityApp({
                   <label className="setting-row">
                     <span>Who can message me</span>
                     <select
-                      onChange={(event) => setMessagePrivacy(event.target.value)}
+                      onChange={(event) => onUpdateProfile({ message_privacy: event.target.value })}
                       value={messagePrivacy}
                     >
                       <option>Circle members only</option>
@@ -615,7 +524,7 @@ export default function CommunityApp({
                     </span>
                     <input
                       checked={suggestSupport}
-                      onChange={(event) => setSuggestSupport(event.target.checked)}
+                      onChange={(event) => onUpdateProfile({ suggest_support: event.target.checked })}
                       type="checkbox"
                     />
                   </label>
@@ -645,9 +554,31 @@ export default function CommunityApp({
                   device, use a private browsing window so this site stays out of
                   your history.
                 </p>
-                <button className="sign-out-button" onClick={onSignOut} type="button">
-                  Sign out
-                </button>
+                {confirmingSignOut ? (
+                  <div className="my-post__confirm" role="alert">
+                    <p>
+                      There&apos;s no email or password behind your alias, so signing
+                      out means you can&apos;t come back as {alias}. Your posts stay in
+                      the circle.
+                    </p>
+                    <div className="my-post__actions">
+                      <button className="is-danger is-solid" onClick={onSignOut} type="button">
+                        Yes, sign out
+                      </button>
+                      <button onClick={() => setConfirmingSignOut(false)} type="button">
+                        Stay
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    className="sign-out-button"
+                    onClick={() => setConfirmingSignOut(true)}
+                    type="button"
+                  >
+                    Sign out
+                  </button>
+                )}
               </section>
             )}
           </>
@@ -738,8 +669,55 @@ export default function CommunityApp({
                 <small>Show this in the Needs Support section</small>
               </span>
             </label>
+            {circle.error && (
+              <p className="circle-error" role="alert">
+                {circle.error}
+              </p>
+            )}
             <button className="primary-button" disabled={!shareText.trim()} type="submit">
               {shareNeedsSupport ? 'Share with Needs Support' : 'Share'}
+            </button>
+          </form>
+        </Modal>
+      )}
+
+      {messagePost && (
+        <Modal
+          className="share-modal"
+          labelledBy="message-title"
+          onClose={() => setMessagePost(null)}
+        >
+          <div className="modal-heading">
+            <h2 id="message-title">Message {messagePost.author}</h2>
+            <button
+              aria-label="Close"
+              className="icon-button"
+              onClick={() => setMessagePost(null)}
+              type="button"
+            >
+              <UiIcon name="close" />
+            </button>
+          </div>
+          <form onSubmit={sendFirstMessage}>
+            <label className="visually-hidden" htmlFor="first-message">
+              Your message
+            </label>
+            <textarea
+              autoFocus
+              id="first-message"
+              onChange={(event) => setFirstMessage(event.target.value)}
+              placeholder="Say why you're reaching out..."
+              rows={4}
+              value={firstMessage}
+            />
+            <p>She can accept or decline. If she declines, you won&apos;t be able to ask again.</p>
+            {circle.error && (
+              <p className="circle-error" role="alert">
+                {circle.error}
+              </p>
+            )}
+            <button className="primary-button" disabled={!firstMessage.trim()} type="submit">
+              Send request
             </button>
           </form>
         </Modal>
@@ -806,19 +784,6 @@ export default function CommunityApp({
                 )
               )}
             </div>
-            {isTeam && (
-              <label className="support-request-toggle team-reply-toggle">
-                <input
-                  checked={replyAsTeam}
-                  onChange={(event) => setReplyAsTeam(event.target.checked)}
-                  type="checkbox"
-                />
-                <span>
-                  <strong>Reply as {TEAM_NAME}</strong>
-                  <small>Shown with a Team badge so she knows it&apos;s us</small>
-                </span>
-              </label>
-            )}
             <button className="primary-button" disabled={!replyText.trim()} type="submit">
               Send reply
             </button>

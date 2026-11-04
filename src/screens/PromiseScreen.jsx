@@ -10,7 +10,6 @@ export default function PromiseScreen({ index, onPromise }) {
   const frameRef = useRef(null);
   const finishTimeoutRef = useRef(null);
   const completedRef = useRef(false);
-  const pointerDownRef = useRef(false);
 
   const tick = () => {
     frameRef.current = null;
@@ -37,31 +36,20 @@ export default function PromiseScreen({ index, onPromise }) {
     if (event?.pointerId !== undefined) {
       event.currentTarget.setPointerCapture(event.pointerId);
     }
-    pointerDownRef.current = true;
     holdStartRef.current = Date.now();
     setHolding(true);
     frameRef.current = window.requestAnimationFrame(tick);
   };
 
   const cancelHold = () => {
-    if (completedRef.current) {
-      pointerDownRef.current = false;
-      return;
-    }
+    if (completedRef.current) return;
     if (frameRef.current !== null) {
       window.cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
     }
     holdStartRef.current = null;
-    pointerDownRef.current = false;
     setHolding(false);
-    if (completedRef.current) {
-      completedRef.current = false;
-      setCompleted(false);
-      setProgress(0);
-    } else {
-      setProgress(0);
-    }
+    setProgress(0);
   };
 
   const handleKeyDown = (event) => {
@@ -86,13 +74,6 @@ export default function PromiseScreen({ index, onPromise }) {
     },
     [],
   );
-
-  useEffect(() => {
-    if (pointerDownRef.current) return;
-    completedRef.current = false;
-    setCompleted(false);
-    setProgress(0);
-  }, [index]);
 
   return (
     <section className="screen promise-screen" aria-labelledby="promise-title">
